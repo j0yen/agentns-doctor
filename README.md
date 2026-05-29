@@ -63,6 +63,10 @@ agentns-doctor status --proc-root /tmp/my-fixture-proc
 | 2 | kernel surface absent and `--expect-kernel` was passed |
 | 3 | malformed surface |
 
+## Recent
+
+- **v0.2.0** — `receipt` subcommand: snapshot per-namespace counters to `~/.cache/agentns/receipts/<sid>.json`; supports `--emit`, `--list`, `--show`, `--join-ctrace`, `--require-wrapped`.
+
 ## License
 
 MIT OR Apache-2.0
