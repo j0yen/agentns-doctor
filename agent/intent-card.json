@@ -1,0 +1,149 @@
+{
+  "schema": "autobuilder.intent_card.v1",
+  "prd_source": "/home/jsy/wintermute/autobuilder/PRD-agentns-doctor.md",
+  "intent_slug": "agentns-doctor",
+  "root_motivation": "No tool on this laptop can distinguish the three valid states of a process's agent-namespace surface (/proc/<pid>/agent_session): kernel absent, kernel present but process unwrapped (healthy/expected), or kernel present and process wrapped (live session). This missing discriminator causes ~20 consecutive false-alarm flags in /self-review and leaves the kernel's per-namespace syscall counter surface completely unread by any tool.",
+  "user_persona": "Claude (or jsy) running /self-review on a wintermute kernel laptop; needs a read-only CLI that returns a machine-readable tri-state verdict so downstream scripts can branch correctly without manual interpretation.",
+  "unfakeable_metric": {
+    "name": "acceptance_tests_passing_count",
+    "lower_is_better": false,
+    "harness_command": "cargo test --workspace --no-fail-fast 2>&1 | grep -c '... ok' || true",
+    "target": 10
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "level": "MUST",
+      "description": "agentns-doctor status --format json on this init-ns session emits {\"state\":\"init\",\"session_nonzero\":false,\"verdict\":\"unwrapped-expected\"} with a non-null integer ns_inode and exit code 0.",
+      "test": "tests/acceptance_ac1.rs: run binary with --format json, parse output, assert state==init, session_nonzero==false, verdict==unwrapped-expected, ns_inode is non-null integer"
+    },
+    {
+      "id": "AC2",
+      "level": "MUST",
+      "description": "With a --proc-root fixture dir where agent_session is absent, status returns state:absent, verdict:kernel-absent, exit 0. With --expect-kernel flag, exit 2.",
+      "test": "tests/acceptance_ac2.rs: create tmp dir without agent_session, run status --proc-root <tmp>, assert state==absent, exit==0; run again with --expect-kernel, assert exit==2"
+    },
+    {
+      "id": "AC3",
+      "level": "MUST",
+      "description": "With --proc-root fixture dir where agent_session contains a non-zero 32-hex string, status returns state:live, session_nonzero:true, verdict:wrapped, and echoes the 32-hex id.",
+      "test": "tests/acceptance_ac3.rs: write fixture agent_session with non-zero 32-hex, run status --proc-root <tmp> --format json, assert state==live, session_nonzero==true, verdict==wrapped, session_id matches fixture"
+    },
+    {
+      "id": "AC4",
+      "level": "MUST",
+      "description": "With --proc-root fixture dir where agent_session contains a non-hex or wrong-length value, status returns state:malformed, exit 3.",
+      "test": "tests/acceptance_ac4.rs: write fixture with 16-char garbage value, assert state==malformed, exit==3"
+    },
+    {
+      "id": "AC5",
+      "level": "MUST",
+      "description": "agentns-doctor counters --format json reproduces the seven kernel counter fields (total_syscalls, openat_count, write_bytes, connect_count, unlink_count, fork_count, elapsed_ns); on init ns all are 0 and a note field is present.",
+      "test": "tests/acceptance_ac5.rs: run counters --format json on self, parse JSON, assert all 7 keys present, all values == 0, note field present"
+    },
+    {
+      "id": "AC6",
+      "level": "MUST",
+      "description": "agentns-doctor counters --delta 50 samples twice and produces a delta object with the same 7 keys; on idle init ns every delta is 0.",
+      "test": "tests/acceptance_ac6.rs: run counters --delta 50 --format json, assert delta object present with 7 keys all == 0"
+    },
+    {
+      "id": "AC7",
+      "level": "MUST",
+      "description": "agentns-doctor explain on init ns output contains substrings 'initial agent namespace', 'not a fault', and 'agentns-claude'.",
+      "test": "tests/acceptance_ac7.rs: run explain, assert stdout contains all three substrings"
+    },
+    {
+      "id": "AC8",
+      "level": "MUST",
+      "description": "agentns-doctor --help lists subcommands status, counters, explain; --version prints 0.1.0.",
+      "test": "tests/acceptance_ac8.rs: run --help, assert stdout contains 'status', 'counters', 'explain'; run --version, assert '0.1.0'"
+    },
+    {
+      "id": "AC9",
+      "level": "MUST",
+      "description": "The status --format json object keys are exactly {state, session_id, session_nonzero, ns_inode, intent_tag, pid, verdict} (golden-file key-set test).",
+      "test": "tests/acceptance_ac9.rs: run status --format json on self, parse, assert sorted key set equals golden set exactly"
+    },
+    {
+      "id": "AC10",
+      "level": "MUST",
+      "description": "No write(2) to any /proc/*/agent_* path under strace/ctrace; no unshare syscall; no kill/signal in unit-level assertion.",
+      "test": "tests/acceptance_ac10.rs: unit test classifier functions directly, assert they only open/read paths under proc_root, never write; integration: check binary only opens /proc and does not call unshare"
+    },
+    {
+      "id": "AC11",
+      "level": "SHOULD",
+      "description": "agentns-doctor explain on a live fixture (non-zero session) reports the session id and is not the init-ns message.",
+      "test": "tests/acceptance_ac11.rs: run explain with --proc-root live fixture, assert output does NOT contain 'not a fault' and DOES contain the hex id"
+    }
+  ],
+  "scope": [
+    "Read /proc/<pid>/agent_session, /proc/<pid>/ns/agent, /proc/<pid>/agent_counters",
+    "Classify process into one of: absent, init, live, malformed",
+    "Emit text and JSON output for status subcommand",
+    "Emit counters with optional two-sample delta for counters subcommand",
+    "Emit human-readable explanation paragraph for explain subcommand",
+    "Support --pid <PID> to inspect another process",
+    "Support --proc-root <dir> test hook to redirect /proc reads to fixtures",
+    "Support --expect-kernel flag to change exit code when kernel surface is absent",
+    "Return stable exit codes: 0=healthy (absent/init/live), 2=expected-kernel-missing, 3=malformed"
+  ],
+  "non_goals": [
+    "Does not write to any /proc path; read-only always",
+    "Does not unshare, set intent_tag, set budgets, or call prctl",
+    "Does not restart, signal, or kill any process",
+    "Does not edit ~/.claude/skills/self-review/SKILL.md (that is PRD-agentns-doctor-self-review.md)",
+    "Does not check memlog, provfs, or any kernel surface other than agent_session/agent_counters/ns/agent",
+    "Does not perform live wrapped-session smoke test (wrap-gated; requires agentns-claude round-trip)",
+    "Does not classify by ns inode value alone; classification is by session value semantics"
+  ],
+  "hard_constraints": {
+    "rust_edition": "2024",
+    "target_kind": "cli",
+    "deny_unsafe": true,
+    "max_deps": 8,
+    "msrv": "1.85",
+    "additional": {
+      "no_async": "true — single-threaded read-only /proc reader; no tokio or async-std",
+      "no_network": "true — reads only /proc; no network deps"
+    }
+  },
+  "five_whys_trace": [
+    {
+      "why": 1,
+      "q": "Why does /self-review keep flagging agentns as broken?",
+      "a": "It only knows two states: file missing (broken) vs file present. All-zeros is treated as broken even though it means 'kernel present, process unwrapped' which is healthy."
+    },
+    {
+      "why": 2,
+      "q": "Why does the two-state check cause so much churn?",
+      "a": "Every self-review run for ~20 sessions flags it as 'lone broken kernel asset,' causing wasted cycles and proposed fixes (edit the hook to unshare) that are structurally impossible."
+    },
+    {
+      "why": 3,
+      "q": "Why can't we just fix the self-review skill check directly?",
+      "a": "We can (PRD-agentns-doctor-self-review.md), but the fix needs to call something that computes the tri-state — no such tool exists yet, so the skill check can't be fixed without building the discriminator first."
+    },
+    {
+      "why": 4,
+      "q": "Why does this need to be a compiled binary rather than a shell function?",
+      "a": "The counters reader needs two-sample delta mode, JSON schema stability is required for downstream parsing, and the --proc-root test hook for fixture-based testing is much cleaner in a compiled binary than in shell."
+    }
+  ],
+  "ambiguities_resolved": [
+    {
+      "question": "Should absent exit 0 by default or 2?",
+      "resolution": "Exit 0 by default (stock kernels are not a fault). Exit 2 only with --expect-kernel flag."
+    },
+    {
+      "question": "What is the exact set of JSON keys for status --format json?",
+      "resolution": "Exactly: state, session_id, session_nonzero, ns_inode, intent_tag, pid, verdict. No extras. AC9 pins this as a golden-key-set test."
+    },
+    {
+      "question": "How should the live AC3 form be handled (requires actual wrap)?",
+      "resolution": "AC3 live form (agentns-claude ... -- agentns-doctor status returning state:live) is deferred/wrap-gated. AC3 as written covers the fixture-based form which is today-testable and sufficient for archive."
+    }
+  ],
+  "created_at": "2026-05-29T00:00:00Z"
+}
