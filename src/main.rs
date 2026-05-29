@@ -28,7 +28,7 @@ pub use proc_reader::ProcReader;
 
 /// Classify a process's agent-namespace state from /proc surfaces.
 #[derive(Parser, Debug)]
-#[command(name = "agentns-doctor", version = "0.2.0", author)]
+#[command(name = "agentns-doctor", version, author)]
 #[command(about = "Read-only diagnostic for agent-namespace state")]
 pub struct Cli {
     #[command(subcommand)]
