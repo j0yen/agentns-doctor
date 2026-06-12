@@ -15,6 +15,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod activation;
 mod classify;
 mod counters;
 mod explain;
@@ -86,6 +87,13 @@ pub enum Commands {
         proc_root: Option<PathBuf>,
     },
 
+    /// Evaluate the full continuity-activation chain and report the first blocking layer.
+    Activation {
+        /// Emit JSON instead of the human table.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Snapshot agent-namespace counters to a JSON ledger (session receipt).
     ///
     /// Subcommands:
@@ -147,6 +155,16 @@ fn main() {
 #[allow(clippy::print_stdout, clippy::print_stderr)]
 fn run(cli: Cli) -> i32 {
     match cli.command {
+        Commands::Activation { json } => {
+            let opts = activation::ActivationOptions::from_env();
+            let result = activation::evaluate(&opts);
+            if json {
+                activation::print_activation_json(&result);
+            } else {
+                activation::print_activation(&result);
+            }
+            0
+        }
         Commands::Status {
             pid,
             format,

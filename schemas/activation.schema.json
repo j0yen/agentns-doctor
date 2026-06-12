@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agentns-doctor/activation/v1",
+  "title": "ActivationResult",
+  "description": "Output schema for `agentns-doctor activation --json`",
+  "type": "object",
+  "required": ["layers", "blocked_layer", "remedy", "running_pkgrel", "installed_pkgrel", "agent_session", "stamp_form"],
+  "properties": {
+    "layers": {
+      "type": "array",
+      "description": "Ordered list of evaluated activation layers (stops at first blocker).",
+      "items": {
+        "type": "object",
+        "required": ["layer", "state"],
+        "properties": {
+          "layer": {
+            "type": "string",
+            "enum": [
+              "kernel-installed",
+              "kernel-prctl",
+              "launcher-installed",
+              "launcher-wired",
+              "live-session",
+              "downstream-stamp"
+            ]
+          },
+          "state": {
+            "type": "object",
+            "required": ["state"],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "reboot_pending",
+                  "kernel_lacks_prctl",
+                  "launcher_missing",
+                  "launcher_uncapped",
+                  "wrapper_forces_synth",
+                  "session_zero",
+                  "stamp_real",
+                  "stamp_fallback",
+                  "stamp_unavailable"
+                ]
+              },
+              "running": { "type": "string" },
+              "installed": { "type": "string" },
+              "remedy": { "type": "string" },
+              "errno": { "type": "integer" },
+              "path": { "type": "string" },
+              "session_id": { "type": "string" },
+              "fallback": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "blocked_layer": {
+      "type": ["string", "null"],
+      "description": "Name of the first blocking layer, or null if LIVE."
+    },
+    "remedy": {
+      "type": ["string", "null"],
+      "description": "Remedy string for the first blocking layer, or null."
+    },
+    "running_pkgrel": {
+      "type": ["string", "null"],
+      "description": "Running kernel pkgrel parsed from uname -r."
+    },
+    "installed_pkgrel": {
+      "type": ["string", "null"],
+      "description": "Installed kernel pkgrel parsed from pacman -Q linux-wintermute."
+    },
+    "agent_session": {
+      "type": ["string", "null"],
+      "description": "Content of /proc/self/agent_session, or null if not reached."
+    },
+    "stamp_form": {
+      "type": ["string", "null"],
+      "enum": ["real", "fallback", "unavailable", null],
+      "description": "Form of the downstream provfs stamp: real agentns id, comm fallback, or unavailable."
+    }
+  }
+}
