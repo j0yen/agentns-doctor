@@ -4,7 +4,7 @@
 //! the first blocking layer:
 //!
 //! 1. **kernel-installed** — installed pkgrel vs running pkgrel
-//! 2. **kernel-prctl** — prctl(PR_SET_AGENT_NS) probe in a forked child
+//! 2. **kernel-prctl** — prctl(PR_GET_AGENT_SESSION_ID) probe in a forked child
 //! 3. **launcher-installed** — ~/.local/bin/agentns-claude exists + cap_sys_admin=ep
 //! 4. **launcher-wired** — claude() shell function not using --no-unshare
 //! 5. **live-session** — /proc/self/agent_session non-zero 32-hex
@@ -20,13 +20,17 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// ── PR_SET_AGENT_NS constants ────────────────────────────────────────────────
+// ── Agent-namespace prctl constants ────────────────────────────────────────────────
 
 /// Base PR_* constant for agent-namespace prctl ops (0x41544E53 = "ATNS").
 /// Declared as i32 directly to avoid the `as` cast lint.
 const PR_AGENT_BASE: libc::c_int = 0x4154_4E53_i32;
-/// PR_SET_AGENT_NS: enter the agent namespace.
-const PR_SET_AGENT_NS: libc::c_int = PR_AGENT_BASE + 1;
+/// PR_GET_AGENT_SESSION_ID: read the calling task's agent session id.
+/// Used as the kernel-support probe: it succeeds unprivileged with a valid
+/// output buffer, while a kernel without agentns returns EINVAL.
+const PR_GET_AGENT_SESSION_ID: libc::c_int = PR_AGENT_BASE + 1;
+/// Size of the session-id buffer PR_GET_AGENT_SESSION_ID writes into.
+const AGENT_NS_ID_BYTES: usize = 16;
 
 // ── Layer state ──────────────────────────────────────────────────────────────
 
@@ -45,7 +49,7 @@ pub enum LayerState {
         /// Suggested remedy command.
         remedy: String,
     },
-    /// Running kernel lacks the PR_SET_AGENT_NS prctl opcode.
+    /// Running kernel lacks the agent-namespace prctl opcodes.
     KernelLacksPrctl {
         /// errno from the prctl call.
         errno: i32,
@@ -128,7 +132,7 @@ impl LayerState {
                 format!("running pkgrel {running} < installed {installed}")
             }
             Self::KernelLacksPrctl { errno, .. } => {
-                format!("prctl(PR_SET_AGENT_NS) errno={errno}")
+                format!("prctl(PR_GET_AGENT_SESSION_ID) errno={errno}")
             }
             Self::LauncherMissing { path, .. } => {
                 format!("not found: {path}")
@@ -327,7 +331,7 @@ fn check_kernel_installed(opts: &ActivationOptions) -> LayerResult {
 /// - `fork()` is async-signal-safe.
 /// - Between fork and _exit, only async-signal-safe calls are made (no
 ///   allocator, no stdio, no panic machinery).
-/// - `prctl(PR_SET_AGENT_NS, ...)` is the intentional probe operation.
+/// - `prctl(PR_GET_AGENT_SESSION_ID, ...)` is the intentional probe operation.
 /// - `_exit()` terminates the child without flushing stdio.
 ///
 /// This is the single documented unsafe block in this module. The parent
@@ -343,10 +347,23 @@ fn probe_prctl_in_child() -> i32 {
         return libc::EINVAL;
     }
     if pid == 0 {
-        // Child: call prctl and exit with the errno
-        // SAFETY: PR_SET_AGENT_NS is a defined constant; remaining args are 0.
+        // Child: call prctl and exit with the errno.
+        // Probe with PR_GET_AGENT_SESSION_ID and a valid stack buffer: it
+        // succeeds unprivileged when the kernel has agentns, and returns
+        // EINVAL when it does not. (PR_SET_AGENT_NS is unsuitable as a
+        // probe — it needs privilege, so EPERM would be ambiguous.)
+        // SAFETY: stack buffer outlives the call; remaining args are 0.
         // _exit is async-signal-safe.
-        let ret = unsafe { libc::prctl(PR_SET_AGENT_NS, 0usize, 0usize, 0usize, 0usize) };
+        let mut id_buf = [0u8; AGENT_NS_ID_BYTES];
+        let ret = unsafe {
+            libc::prctl(
+                PR_GET_AGENT_SESSION_ID,
+                id_buf.as_mut_ptr() as usize,
+                0usize,
+                0usize,
+                0usize,
+            )
+        };
         let child_errno = if ret == 0 {
             0
         } else {
